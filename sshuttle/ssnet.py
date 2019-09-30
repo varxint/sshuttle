@@ -34,6 +34,8 @@ CMD_DNS_RESPONSE = 0x420b
 CMD_UDP_OPEN = 0x420c
 CMD_UDP_DATA = 0x420d
 CMD_UDP_CLOSE = 0x420e
+CMD_DIAG_REQ = 0x4211
+CMD_DIAG_RESPONSE = 0x4212
 
 cmd_to_name = {
     CMD_EXIT: 'EXIT',
@@ -51,14 +53,14 @@ cmd_to_name = {
     CMD_UDP_OPEN: 'UDP_OPEN',
     CMD_UDP_DATA: 'UDP_DATA',
     CMD_UDP_CLOSE: 'UDP_CLOSE',
+    CMD_DIAG_REQ: 'CMD_DIAG_REQ',
+    CMD_DIAG_RESPONSE: 'CMD_DIAG_RESPONSE'
 }
-
 
 NET_ERRS = [errno.ECONNREFUSED, errno.ETIMEDOUT,
             errno.EHOSTUNREACH, errno.ENETUNREACH,
             errno.EHOSTDOWN, errno.ENETDOWN,
             errno.ENETUNREACH]
-
 
 def _add(l, elem):
     if elem not in l:
@@ -385,6 +387,7 @@ class Mux(Handler):
         self.new_channel = self.got_dns_req = self.got_routes = None
         self.got_udp_open = self.got_udp_data = self.got_udp_close = None
         self.got_host_req = self.got_host_list = None
+        self.diagnostic_request_handler = self.diagnostic_response_handler = None
         self.channels = {}
         self.chani = 0
         self.want = 0
@@ -481,6 +484,13 @@ class Mux(Handler):
                 self.got_host_list(data)
             else:
                 raise Exception('got CMD_HOST_LIST without got_host_list?')
+        elif cmd == CMD_DIAG_REQ:
+            target = data
+            if self.diagnostic_request_handler:
+                self.diagnostic_request_handler(channel, data)
+        elif cmd == CMD_DIAG_RESPONSE:
+            if self.diagnostic_response_handler:
+                self.diagnostic_response_handler(data)
         else:
             callback = self.channels.get(channel)
             if not callback:

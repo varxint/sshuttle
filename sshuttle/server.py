@@ -6,6 +6,7 @@ import time
 import sys
 import os
 import platform
+import json
 
 import sshuttle.ssnet as ssnet
 import sshuttle.helpers as helpers
@@ -381,6 +382,13 @@ def main(latency_control, auto_hosts, to_nameserver):
             handlers.append(h)
             udphandlers[channel] = h
     mux.got_udp_open = udp_open
+
+    def diagnostic_handler(channel, data):
+        debug2('Incoming diagnostic test: %s\n' % data)
+        decoded_diagnostic_payload = json.loads(data)
+        decoded_diagnostic_payload["status"] = "SUCCESS" # This could be made more complex in the future
+        mux.send(channel, ssnet.CMD_DIAG_RESPONSE, b'%s' % json.dumps(decoded_diagnostic_payload))
+    mux.diagnostic_request_handler = diagnostic_handler
 
     while mux.ok:
         if hw.pid:

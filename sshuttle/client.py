@@ -19,6 +19,7 @@ import ipaddress
 import threading
 import redis
 import time
+import queue
 try:
     from pwd import getpwnam
 except ImportError:
@@ -67,6 +68,16 @@ _acl_always_connected = {}
 _allowed_targets_modified = False
 _sources_modified = False
 _always_connected = ALWAYS_CONNECTED_OFF
+_diagnostic_requests_backlog = queue.Queue()
+
+def add_diagnostic_request(request_payload):
+    _diagnostic_requests_backlog.put_nowait(request_payload)
+
+def get_diagnostic_request():
+    try:
+        return _diagnostic_requests_backlog.get_nowait()
+    except queue.Empty:
+        return False
 
 ALLOWED_TCP_ACL_TYPE = 1
 DISALLOWED_ACL_TYPE = 2
@@ -84,7 +95,9 @@ sshuttleAclSources = "sshuttleAclSources"
 sshuttleAclExcluded = "sshuttleAclExcluded"
 alwaysConnected = "alwaysConnected"
 aclAlwaysConnected = "aclAlwaysConnected"
+diagnosticConnectionTest = "sshuttleDiagnosticConnectionTest"
 sshuttleAclEventsChannel = "aclEvents"
+diagnosticEventsChannel = "sshuttleDiagnosticEvents"
 
 REDIS_HOST = None
 REDIS_PORT = None
@@ -834,15 +847,51 @@ class AclHandler:
 
         debug3("Always Connected ACL: \n\n%s" % _acl_always_connected)
 
+
+class DiagnosticHandler():
+    """
+    Handles executing diagnostic tests, updating redis with the result
+    received by the server
+    """
+    def __init__(self, mux, callback=None):
+        self.mux = mux
+        self.callback = callback
+        self.mux.diagnostic_response_handler = self._response_handler
+
+    def run(self, diagnostic_payload):
+        target = diagnostic_payload["target"]
+        diagnostic_key = diagnostic_payload["diagnosticKey"]
+        debug2("Running test for diagnostic %s (target=%s)\n" % (diagnostic_key, target))
+        self.mux.send(self.mux.next_channel(), ssnet.CMD_DIAG_REQ, bytes(json.dumps(diagnostic_payload), 'utf-8'))
+        self.mux.flush()
+
+    def registerCallback(self, callback):
+        self.callback = callback
+
+    def _response_handler(self, data):
+        try:
+            parsed_data = json.loads(data.decode("ASCII"))
+            status = parsed_data["status"]
+            target = parsed_data["target"]
+            debug2("Received diagnostic response from gateway: %s, status: %s, target: %s\n" % (data, status, target))
+            if self.callback:
+                self.callback(parsed_data)
+        except Exception as e:
+            log("Failed to parse response: %s\n" % e)
+
+
 class ChannelListener(threading.Thread):
 
-    def __init__(self, redisHost, redisPort, channels):
+    def __init__(self, redisHost, redisPort, channels, diagnosticHandler):
         threading.Thread.__init__(self)
         self.redisHost = redisHost
         self.redisPort = redisPort
         self.channels = channels
+        self.diagnosticHandler = diagnosticHandler
         self.redisClient = None
         self.redisPubSub = None
+
+        self.diagnosticHandler.registerCallback(self.handleDiagnosticResponse)
 
     def connect(self):
         try:
@@ -871,6 +920,7 @@ class ChannelListener(threading.Thread):
     def handlePubSubEvent(self, item):
         acl_type = None
         channel = item['channel'].decode('utf-8')
+
         if (channel == sshuttleAclEventsChannel and item['type'] == "message"):
             data = item['data'].decode('utf-8')
             if (data == sshuttleAclTcp):
@@ -887,6 +937,17 @@ class ChannelListener(threading.Thread):
                 acl_type = ACL_ALWAYS_CONNECTED_TYPE
             else:
                 debug3("Unsupported ACL type. Channel: %s, Data: %s\n" % (channel, data))
+        elif channel == diagnosticEventsChannel and item['type'] == "message":
+            data = item['data'].decode('utf-8')
+            if not data:
+                log("Unrecognized diagnostic message '%s'\n" % data)
+                return
+
+            ctx = data.split(":")[0]
+            if (ctx == diagnosticConnectionTest):
+                self.handleDiagnosticConnection(data)
+            else:
+                log("Unrecognized diagnostic context: '%s'\n" % ctx)
 
         if acl_type is not None:
             AclHandler(self.redisClient, acl_type).reload_acl_file()
@@ -899,6 +960,24 @@ class ChannelListener(threading.Thread):
         AclHandler(self.redisClient, ALWAYS_CONNECTED_TYPE).reload_acl_file()
         AclHandler(self.redisClient, ACL_ALWAYS_CONNECTED_TYPE).reload_acl_file()
 
+    def handleDiagnosticConnection(self, diagnosticKey):
+        debug1("Handling diagnostic connection '%s'\n" % diagnosticKey)
+
+        try:
+            test_request = self.redisClient.get(diagnosticKey).decode("ASCII")
+            test_request = json.loads(test_request)
+            test_request["diagnosticKey"] = diagnosticKey
+            test_request_str = json.dumps(test_request)
+            add_diagnostic_request(test_request_str) # Push it into the queue to be processed by the main networking thread
+        except Exception as e:
+            log("Failed to read diagnostic test: %s\n" % e)
+            pass
+
+    def handleDiagnosticResponse(self, data):
+        data_str = json.dumps(data)
+        debug1("Updating redis...%s\n" % data_str)
+        self.redisClient.set(data["diagnosticKey"], data_str)
+
     def initializeChannelHandlers(self):
         try:
             for item in self.redisPubSub.listen():
@@ -909,6 +988,7 @@ class ChannelListener(threading.Thread):
 
     def run(self):
         self.initializeChannelHandlers()
+
 
 def _main(tcp_listener, udp_listener, fw, ssh_cmd, remotename,
           python, latency_control,
@@ -940,6 +1020,14 @@ def _main(tcp_listener, udp_listener, fw, ssh_cmd, remotename,
         else:
             raise
     mux = Mux(serversock, serversock)
+
+    diagnosticHandler = DiagnosticHandler(mux)
+
+    channelSubscriptions = [sshuttleAclEventsChannel, diagnosticEventsChannel]
+    channelListener = ChannelListener(REDIS_HOST, REDIS_PORT, channelSubscriptions, diagnosticHandler)
+    channelListener.setDaemon(True)
+    channelListener.initialize()
+    channelListener.start()
 
     expected = b'SSHUTTLE0001'
 
@@ -1024,6 +1112,12 @@ def _main(tcp_listener, udp_listener, fw, ssh_cmd, remotename,
 
         check_connections_allowed(mux)
         ssnet.runonce(handlers, mux)
+
+        diagnostic_req = get_diagnostic_request()
+        if diagnostic_req:
+            payload = json.loads(diagnostic_req)
+            diagnosticHandler.run(payload)
+
         if latency_control:
             mux.check_fullness()
 
@@ -1261,12 +1355,6 @@ def main(listenip_v6, listenip_v4,
 
     if (REDIS_HOST is None or REDIS_PORT is None):
         raise Fatal("REDIS_HOST and REDIS_PORT environment variables must both be set!")
-
-    channelSubscriptions = [sshuttleAclEventsChannel]
-    channelListener = ChannelListener(REDIS_HOST, REDIS_PORT, channelSubscriptions)
-    channelListener.setDaemon(True)
-    channelListener.initialize()
-    channelListener.start()
 
     # start the client process
     try:
