@@ -676,8 +676,8 @@ def resolve_trusted_dc_dns():
         resolver_response = dns_resolver.resolve(TRUSTED_DOMAIN_FQDN)
         TRUSTED_DC1 = resolver_response[0].address
         TRUSTED_DC2 = resolver_response[1].address
-    except:
-        log('Error: Could not resolve Trusted DCs')
+    except Exception as e:
+        log('Error: Could not resolve Trusted DCs: %s' % e)
 
 def ipInNetwork(ip, cidrBlock):
     try:
