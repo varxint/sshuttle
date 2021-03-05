@@ -125,16 +125,6 @@ try:
 except KeyError:
     log('Error: Could not read environment variables for TRUSTED_DOMAIN_FQDN')
 
-try:
-    if TRUSTED_DOMAIN_FQDN is not None:
-        dns_resolver = resolver.Resolver()
-        dns_resolver.nameservers = [SSHUTTLE_NS_HOSTS]
-        resolver_response = dns_resolver.resolve(TRUSTED_DOMAIN_FQDN)
-        TRUSTED_DC1 = resolver_response[0].address
-        TRUSTED_DC2 = resolver_response[1].address
-except KeyError:
-    log('Error: Could not resolve Trusted DCs')
-
 def check_daemon(pidfile):
     global _pidname
     _pidname = os.path.abspath(pidfile)
@@ -677,6 +667,18 @@ def matches_acl(dstip, dstport, store_to_check):
 
     return False
 
+def resolve_trusted_dc_dns():
+    global TRUSTED_DC1
+    global TRUSTED_DC2
+    try:
+        dns_resolver = resolver.Resolver()
+        dns_resolver.nameservers = [SSHUTTLE_NS_HOSTS]
+        resolver_response = dns_resolver.resolve(TRUSTED_DOMAIN_FQDN)
+        TRUSTED_DC1 = resolver_response[0].address
+        TRUSTED_DC2 = resolver_response[1].address
+    except:
+        log('Error: Could not resolve Trusted DCs')
+
 def ipInNetwork(ip, cidrBlock):
     try:
         network = ipaddress.ip_network(cidrBlock, False)
@@ -696,9 +698,12 @@ def tcp_connection_is_allowed_conditional(dstip, dstport, srcip, check_acl, chec
             return True
 
         # allow connection to trusted (onprem) DCs
-        if (dstip == TRUSTED_DC1) or (dstip == TRUSTED_DC2):
-            debug3("TCP target %r is for trusted DC\n" % dstip)
-            return True
+        if TRUSTED_DOMAIN_FQDN:
+            if (TRUSTED_DC1 is None) or (TRUSTED_DC2 is None):
+                resolve_trusted_dc_dns()
+            if (dstip == TRUSTED_DC1) or (dstip == TRUSTED_DC2):
+                debug3("TCP target %r is for trusted DC\n" % dstip)
+                return True
 
         ctime = time.time()
         if _excluded_sources and srcip in _excluded_sources and (_excluded_sources[srcip] / 1000.0) >= ctime:
@@ -739,9 +744,12 @@ def udp_connection_is_allowed(dstip, dstport, srcip):
         return True
 
     # allow connection to trusted (onprem) DCs
-    if (dstip == TRUSTED_DC1) or (dstip == TRUSTED_DC2):
-        debug3("UDP target %r is for trusted DC\n" % dstip)
-        return True
+    if TRUSTED_DOMAIN_FQDN:
+        if (TRUSTED_DC1 is None) or (TRUSTED_DC2 is None):
+            resolve_trusted_dc_dns()
+        if (dstip == TRUSTED_DC1) or (dstip == TRUSTED_DC2):
+            debug3("UDP target %r is for trusted DC\n" % dstip)
+            return True
 
     ctime = time.time()
     if _excluded_sources and srcip in _excluded_sources and (_excluded_sources[srcip] / 1000.0) >= ctime:
