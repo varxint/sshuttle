@@ -55,11 +55,15 @@ def increment_log_level(signum, frame):
     helpers.verbose = (helpers.verbose + 1) % 4
     log('Received signal %d, changing log level from %d to %d\n' % (signum, old_level, helpers.verbose))
 
-def refresh_env_vars_from_file():
-    with open('/etc/environment') as f:
-        for line in f:
-            key, value = line.split('=', 1)
-            os.environ[key] = value
+def refresh_env_vars_from_file(signum):
+    try:
+        with open('/etc/environment') as f:
+            for line in f:
+                key, value = line.split('=', 1)
+                os.environ[key] = value
+        log('Received signal %d, reloaded environment variables from /etc/environment\n' % signum)
+    except Exception as e:
+        log('Error: Could not reload environment variables from /etc/environment %s' % e)
 
 # Invocation examples:
 #   kill -SIGUSR2 <pid>
