@@ -55,10 +55,21 @@ def increment_log_level(signum, frame):
     helpers.verbose = (helpers.verbose + 1) % 4
     log('Received signal %d, changing log level from %d to %d\n' % (signum, old_level, helpers.verbose))
 
+def refresh_env_vars_from_file(signum):
+    try:
+        with open('/etc/environment') as f:
+            for line in f:
+                key, value = line.split('=', 1)
+                os.environ[key] = value
+        log('Received signal %d, reloaded environment variables from /etc/environment\n' % signum)
+    except Exception as e:
+        log('Error: Could not reload environment variables from /etc/environment %s' % e)
+
 # Invocation examples:
 #   kill -SIGUSR2 <pid>
 #   killall -s USR2 sshuttle
 signal.signal(signal.SIGUSR2, increment_log_level)
+signal.signal(signal.SIGHUP, refresh_env_vars_from_file)
 
 SSHUTTLE_METRIC_ROUTER = "sshuttle.router."
 SSHUTTLE_METRIC_GATEWAY = "sshuttle.gateway."
