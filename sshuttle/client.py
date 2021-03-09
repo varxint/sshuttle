@@ -674,8 +674,7 @@ def matches_acl(dstip, dstport, store_to_check):
 
 def get_trusted_fqdn():
     try:
-        if os.environ['TRUSTED_DOMAIN_FQDN']:
-            return os.environ['TRUSTED_DOMAIN_FQDN']
+        return os.environ['TRUSTED_DOMAIN_FQDN']
     except Exception as e:
         log('Error: TRUSTED_DOMAIN_FQDN environment variable is not defined: %s' % e)
         return None
