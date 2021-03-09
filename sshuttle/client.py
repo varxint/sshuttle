@@ -55,7 +55,7 @@ def increment_log_level(signum, frame):
     helpers.verbose = (helpers.verbose + 1) % 4
     log('Received signal %d, changing log level from %d to %d\n' % (signum, old_level, helpers.verbose))
 
-def refresh_env_vars_from_file(signum):
+def refresh_env_vars_from_file(signum, frame):
     try:
         with open('/etc/environment') as f:
             for line in f:
