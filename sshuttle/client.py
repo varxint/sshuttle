@@ -112,7 +112,6 @@ MS1_CIDR = None
 MS2_CIDR = None
 TRUSTED_DC1 = None
 TRUSTED_DC2 = None
-TRUSTED_DOMAIN_FQDN = None
 SSHUTTLE_NS_HOSTS = None
 try:
     REDIS_HOST = os.environ['REDIS_HOST']
@@ -130,11 +129,6 @@ try:
     SSHUTTLE_NS_HOSTS = os.environ['SSHUTTLE_NS_HOSTS']
 except KeyError:
     log('Error: Could not read environment variables for SSHUTTLE_NS_HOSTS')
-
-try:
-    TRUSTED_DOMAIN_FQDN = os.environ['TRUSTED_DOMAIN_FQDN']
-except KeyError:
-    log('Error: Could not read environment variables for TRUSTED_DOMAIN_FQDN')
 
 def check_daemon(pidfile):
     global _pidname
@@ -678,13 +672,20 @@ def matches_acl(dstip, dstport, store_to_check):
 
     return False
 
+def get_trusted_fqdn():
+    try:
+        return os.environ['TRUSTED_DOMAIN_FQDN']
+    except Exception as e:
+        log('Error: TRUSTED_DOMAIN_FQDN environment variable is not defined: %s' % e)
+        return None
+
 def resolve_trusted_dc_dns():
     global TRUSTED_DC1
     global TRUSTED_DC2
     try:
         dns_resolver = resolver.Resolver()
         dns_resolver.nameservers = [SSHUTTLE_NS_HOSTS]
-        resolver_response = dns_resolver.resolve(TRUSTED_DOMAIN_FQDN)
+        resolver_response = dns_resolver.resolve(get_trusted_fqdn())
         TRUSTED_DC1 = resolver_response[0].address
         TRUSTED_DC2 = resolver_response[1].address
     except Exception as e:
@@ -709,7 +710,7 @@ def tcp_connection_is_allowed_conditional(dstip, dstport, srcip, check_acl, chec
             return True
 
         # allow connection to trusted (onprem) DCs
-        if TRUSTED_DOMAIN_FQDN:
+        if get_trusted_fqdn():
             if (TRUSTED_DC1 is None) or (TRUSTED_DC2 is None):
                 resolve_trusted_dc_dns()
             if (dstip == TRUSTED_DC1) or (dstip == TRUSTED_DC2):
@@ -755,7 +756,7 @@ def udp_connection_is_allowed(dstip, dstport, srcip):
         return True
 
     # allow connection to trusted (onprem) DCs
-    if TRUSTED_DOMAIN_FQDN:
+    if get_trusted_fqdn():
         if (TRUSTED_DC1 is None) or (TRUSTED_DC2 is None):
             resolve_trusted_dc_dns()
         if (dstip == TRUSTED_DC1) or (dstip == TRUSTED_DC2):
