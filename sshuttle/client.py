@@ -60,8 +60,10 @@ def refresh_env_vars_from_file(signum, frame):
         with open('/etc/environment') as f:
             for line in f:
                 key, value = line.split('=', 1)
-                os.environ[key] = value
-        log('Received signal %d, reloaded environment variables from /etc/environment\n' % signum)
+                if key == 'TRUSTED_DOMAIN_FQDN':
+                    value = value.rstrip()
+                    os.environ[key] = value
+        log('Received signal %d, read value of TRUSTED_DOMAIN_FQDN from /etc/environment\n' % signum)
     except Exception as e:
         log('Error: Could not reload environment variables from /etc/environment %s' % e)
 
