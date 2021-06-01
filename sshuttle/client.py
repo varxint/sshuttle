@@ -112,8 +112,7 @@ REDIS_HOST = None
 REDIS_PORT = None
 MS1_CIDR = None
 MS2_CIDR = None
-TRUSTED_DC1 = None
-TRUSTED_DC2 = None
+TRUSTED_DCS = None
 SSHUTTLE_NS_HOSTS = None
 try:
     REDIS_HOST = os.environ['REDIS_HOST']
@@ -682,14 +681,13 @@ def get_trusted_fqdn():
         return None
 
 def resolve_trusted_dc_dns():
-    global TRUSTED_DC1
-    global TRUSTED_DC2
+    global TRUSTED_DCS
     try:
         dns_resolver = resolver.Resolver()
         dns_resolver.nameservers = [SSHUTTLE_NS_HOSTS]
         resolver_response = dns_resolver.resolve(get_trusted_fqdn())
-        TRUSTED_DC1 = resolver_response[0].address
-        TRUSTED_DC2 = resolver_response[1].address
+        TRUSTED_DCS = [res.address for res in resolver_response]
+        log('Loaded Trusted DCs: %s\n' % TRUSTED_DCS)
     except Exception as e:
         log('Error: Could not resolve Trusted DCs: %s' % e)
 
@@ -713,10 +711,11 @@ def tcp_connection_is_allowed_conditional(dstip, dstport, srcip, check_acl, chec
 
         # allow connection to trusted (onprem) DCs
         if get_trusted_fqdn():
-            if (TRUSTED_DC1 is None) or (TRUSTED_DC2 is None):
+            if (TRUSTED_DCS is None):
                 resolve_trusted_dc_dns()
-            if (dstip == TRUSTED_DC1) or (dstip == TRUSTED_DC2):
-                debug3("TCP target %r is for trusted DC\n" % dstip)
+            debug2("Checking if ip %s is in trusted DCs %s\n" % (dstip, TRUSTED_DCS))
+            if TRUSTED_DCS and len(TRUSTED_DCS) and dstip in TRUSTED_DCS:
+                debug2("TCP target %r is for trusted DC\n" % dstip)
                 return True
 
         ctime = time.time()
@@ -759,10 +758,11 @@ def udp_connection_is_allowed(dstip, dstport, srcip):
 
     # allow connection to trusted (onprem) DCs
     if get_trusted_fqdn():
-        if (TRUSTED_DC1 is None) or (TRUSTED_DC2 is None):
+        if (TRUSTED_DCS is None):
             resolve_trusted_dc_dns()
-        if (dstip == TRUSTED_DC1) or (dstip == TRUSTED_DC2):
-            debug3("UDP target %r is for trusted DC\n" % dstip)
+        debug2("Checking if ip %s is in trusted DCs for udp %s\n" % (dstip, TRUSTED_DCS))
+        if TRUSTED_DCS and len(TRUSTED_DCS) and dstip in TRUSTED_DCS:
+            debug2("UDP target %r is for trusted DC\n" % dstip)
             return True
 
     ctime = time.time()
