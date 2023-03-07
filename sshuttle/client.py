@@ -114,6 +114,7 @@ MS1_CIDR = None
 MS2_CIDR = None
 TRUSTED_DCS = None
 SSHUTTLE_NS_HOSTS = None
+ENFORCE_SOURCE_ACL = True
 try:
     REDIS_HOST = os.environ['REDIS_HOST']
     REDIS_PORT = os.environ['REDIS_PORT']
@@ -130,6 +131,11 @@ try:
     SSHUTTLE_NS_HOSTS = os.environ['SSHUTTLE_NS_HOSTS']
 except KeyError:
     log('Error: Could not read environment variables for SSHUTTLE_NS_HOSTS')
+
+try:
+    ENFORCE_SOURCE_ACL = os.environ['ENFORCE_SOURCE_ACL'] == "true"
+except Exception:
+    debug1('Warning: no env for ENFORCE_SOURCE_ACL. Using default %s' % (ENFORCE_SOURCE_ACL))
 
 def check_daemon(pidfile):
     global _pidname
@@ -723,7 +729,7 @@ def tcp_connection_is_allowed_conditional(dstip, dstport, srcip, check_acl, chec
             debug3("Connection from a source excluded from the ACL\n")
             return True
 
-        check_allowed_sources = True
+        check_allowed_sources = ENFORCE_SOURCE_ACL
         # the global roomFeature must be turned ON and the srcip must match a desktop that has Always Connected enabled
         if (_always_connected == ALWAYS_CONNECTED_ON) and (srcip in _acl_always_connected):
             debug3("TCP source %r allowed because alwaysConnected mode is ON and srcip is in aclAlwaysConnected\n" % srcip)
@@ -770,7 +776,7 @@ def udp_connection_is_allowed(dstip, dstport, srcip):
         debug1("Connection from a source excluded from the ACL\n")
         return True
 
-    check_allowed_sources = True
+    check_allowed_sources = ENFORCE_SOURCE_ACL
     # the global roomFeature must be turned ON and the srcip must match a desktop that has Always Connected enabled
     if (_always_connected == ALWAYS_CONNECTED_ON) and (srcip in _acl_always_connected):
         debug3("UDP source %r allowed because alwaysConnected mode is ON and srcip is in aclAlwaysConnected\n" % srcip)
