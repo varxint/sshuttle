@@ -55,15 +55,24 @@ def increment_log_level(signum, frame):
     helpers.verbose = (helpers.verbose + 1) % 4
     log('Received signal %d, changing log level from %d to %d\n' % (signum, old_level, helpers.verbose))
 
+def set_enforce_source_acl():
+    global ENFORCE_SOURCE_ACL
+    try:
+        ENFORCE_SOURCE_ACL = os.environ['ENFORCE_SOURCE_ACL'] == "true"
+    except Exception:
+        debug1('Warning: no env for ENFORCE_SOURCE_ACL. Using default %s' % (ENFORCE_SOURCE_ACL))
+
 def refresh_env_vars_from_file(signum, frame):
     try:
         with open('/etc/environment') as f:
             for line in f:
                 key, value = line.split('=', 1)
-                if key == 'TRUSTED_DOMAIN_FQDN':
+                if key == 'TRUSTED_DOMAIN_FQDN' or key == 'ENFORCE_SOURCE_ACL':
                     value = value.rstrip()
                     os.environ[key] = value
         log('Received signal %d, read value of TRUSTED_DOMAIN_FQDN from /etc/environment\n' % signum)
+        set_enforce_source_acl()
+        log('Set enforce ACL sources config to %s' % ENFORCE_SOURCE_ACL)
     except Exception as e:
         log('Error: Could not reload environment variables from /etc/environment %s' % e)
 
@@ -132,10 +141,7 @@ try:
 except KeyError:
     log('Error: Could not read environment variables for SSHUTTLE_NS_HOSTS')
 
-try:
-    ENFORCE_SOURCE_ACL = os.environ['ENFORCE_SOURCE_ACL'] == "true"
-except Exception:
-    debug1('Warning: no env for ENFORCE_SOURCE_ACL. Using default %s' % (ENFORCE_SOURCE_ACL))
+set_enforce_source_acl()
 
 def check_daemon(pidfile):
     global _pidname
