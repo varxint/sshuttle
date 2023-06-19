@@ -258,11 +258,11 @@ class Method(BaseMethod):
         for _, ip in [i for i in nslist if i[0] == family]:
             _ipt('-A', mark_chain, '-j', 'MARK', '--set-mark', '1',
                  '--dest', '%s/32' % ip, '--src', '%s/32' % myip,
-                 '-m', 'udp', '-p', 'udp', '--dport', '53')
+                 '-m', 'udp', '-p', 'udp', '--dport', '15353')
             _ipt('-A', tproxy_chain, '-j', 'TPROXY',
                  '--tproxy-mark', '0x1/0x1',
                  '--dest', '%s/32' % ip, '--src', '%s/32' % myip,
-                 '-m', 'udp', '-p', 'udp', '--dport', '53',
+                 '-m', 'udp', '-p', 'udp', '--dport', '15353',
                  '--on-port', str(dnsport))
 
         for _, swidth, sexclude, snet, fport, lport \
